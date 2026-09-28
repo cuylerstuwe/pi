@@ -1058,10 +1058,33 @@ export interface ModelInputLimits {
 	images?: ModelImageInputLimits;
 }
 
+/** A measured tokens/second value, observed range, or unavailable measurement. */
+export type PickerThroughput = number | { min: number; max: number } | null;
+
 /** Fields shared by every catalog entry, regardless of what you can do with it. */
 export interface BaseModel<TApi extends string> {
 	id: string;
 	name: string;
+	/** Optional short name shown in parentheses in the model picker and included in its search. */
+	pickerName?: string;
+	/** Display/search alias only; requests and stored sessions retain id. */
+	pickerAlias?: string;
+	/** Provider group priority in the picker. Lowest configured value wins; unset sorts last. */
+	pickerProviderOrder?: number;
+	/** Picker section: remote (default) above local, separated by a nonselectable rule. */
+	pickerGroup?: "remote" | "local";
+	/** Optional serving-hardware label shown in brackets in the model picker and included in its search. */
+	pickerHardware?: string;
+	/** Display order within a provider in the model picker. Lower values come first; unset sorts last. */
+	pickerOrder?: number;
+	/** Intelligence score text shown as INT: in the model picker, preserving ranges and estimate markers. */
+	pickerIntelligence?: string;
+	/** Measured prefill, code, and prose throughput in tokens per second, shown as DEX: in the picker. */
+	pickerDex?: { prefill?: PickerThroughput; code?: PickerThroughput; prose?: PickerThroughput };
+	/** Total/active params: numeric values are billions; strings display verbatim (ranges, units, estimates, unknowns). */
+	pickerParams?: { total?: number | string; active?: number | string };
+	/** Consecutive colored runs of the picker alias or model ID. chars counts graphemes; colors are #RRGGBB. */
+	pickerColors?: { chars: number; fg: string; bg?: string }[];
 	api: TApi;
 	provider: ProviderId;
 	baseUrl: string;

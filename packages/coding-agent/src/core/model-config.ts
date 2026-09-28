@@ -185,9 +185,41 @@ const ProviderCompatSchema = Type.Union([
 	AnthropicMessagesCompatSchema,
 ]);
 
+const PickerParamsSchema = Type.Object({
+	total: Type.Optional(Type.Union([Type.Number({ exclusiveMinimum: 0 }), Type.String({ minLength: 1 })])),
+	active: Type.Optional(Type.Union([Type.Number({ exclusiveMinimum: 0 }), Type.String({ minLength: 1 })])),
+});
+const PickerThroughputSchema = Type.Union([
+	Type.Number({ exclusiveMinimum: 0 }),
+	Type.Object({ min: Type.Number({ exclusiveMinimum: 0 }), max: Type.Number({ exclusiveMinimum: 0 }) }),
+	Type.Null(),
+]);
+const PickerDexSchema = Type.Object({
+	prefill: Type.Optional(PickerThroughputSchema),
+	code: Type.Optional(PickerThroughputSchema),
+	prose: Type.Optional(PickerThroughputSchema),
+});
+const PickerColorsSchema = Type.Array(
+	Type.Object({
+		chars: Type.Integer({ minimum: 1 }),
+		fg: Type.String({ pattern: "^#[0-9a-fA-F]{6}$" }),
+		bg: Type.Optional(Type.String({ pattern: "^#[0-9a-fA-F]{6}$" })),
+	}),
+);
+
 const ModelDefinitionSchema = Type.Object({
 	id: Type.String({ minLength: 1 }),
 	name: Type.Optional(Type.String({ minLength: 1 })),
+	pickerName: Type.Optional(Type.String({ minLength: 1 })),
+	pickerAlias: Type.Optional(Type.String({ minLength: 1 })),
+	pickerProviderOrder: Type.Optional(Type.Number()),
+	pickerGroup: Type.Optional(Type.Union([Type.Literal("remote"), Type.Literal("local")])),
+	pickerHardware: Type.Optional(Type.String({ minLength: 1 })),
+	pickerOrder: Type.Optional(Type.Number()),
+	pickerIntelligence: Type.Optional(Type.String({ minLength: 1 })),
+	pickerDex: Type.Optional(PickerDexSchema),
+	pickerParams: Type.Optional(PickerParamsSchema),
+	pickerColors: Type.Optional(PickerColorsSchema),
 	api: Type.Optional(Type.String({ minLength: 1 })),
 	baseUrl: Type.Optional(Type.String({ minLength: 1 })),
 	reasoning: Type.Optional(Type.Boolean()),
@@ -205,6 +237,16 @@ const ModelDefinitionSchema = Type.Object({
 
 const ModelOverrideSchema = Type.Object({
 	name: Type.Optional(Type.String({ minLength: 1 })),
+	pickerName: Type.Optional(Type.String({ minLength: 1 })),
+	pickerAlias: Type.Optional(Type.String({ minLength: 1 })),
+	pickerProviderOrder: Type.Optional(Type.Number()),
+	pickerGroup: Type.Optional(Type.Union([Type.Literal("remote"), Type.Literal("local")])),
+	pickerHardware: Type.Optional(Type.String({ minLength: 1 })),
+	pickerOrder: Type.Optional(Type.Number()),
+	pickerIntelligence: Type.Optional(Type.String({ minLength: 1 })),
+	pickerDex: Type.Optional(PickerDexSchema),
+	pickerParams: Type.Optional(PickerParamsSchema),
+	pickerColors: Type.Optional(PickerColorsSchema),
 	reasoning: Type.Optional(Type.Boolean()),
 	thinkingLevelMap: Type.Optional(ThinkingLevelMapSchema),
 	input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),

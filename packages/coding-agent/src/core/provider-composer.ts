@@ -52,6 +52,16 @@ export interface ExtensionOAuthConfig {
 interface ProviderModelConfigBase {
 	id: string;
 	name: string;
+	pickerName?: string;
+	pickerAlias?: string;
+	pickerProviderOrder?: number;
+	pickerGroup?: AnyModel["pickerGroup"];
+	pickerHardware?: string;
+	pickerOrder?: number;
+	pickerIntelligence?: string;
+	pickerDex?: AnyModel["pickerDex"];
+	pickerParams?: AnyModel["pickerParams"];
+	pickerColors?: AnyModel["pickerColors"];
 	api?: string;
 	baseUrl?: string;
 	input: ("text" | "image")[];
@@ -164,6 +174,16 @@ function applyModelOverride(model: Model<Api>, override: ModelsJsonModelOverride
 	return {
 		...model,
 		name: override.name ?? model.name,
+		pickerName: override.pickerName ?? model.pickerName,
+		pickerAlias: override.pickerAlias ?? model.pickerAlias,
+		pickerProviderOrder: override.pickerProviderOrder ?? model.pickerProviderOrder,
+		pickerGroup: override.pickerGroup ?? model.pickerGroup,
+		pickerHardware: override.pickerHardware ?? model.pickerHardware,
+		pickerOrder: override.pickerOrder ?? model.pickerOrder,
+		pickerIntelligence: override.pickerIntelligence ?? model.pickerIntelligence,
+		pickerDex: override.pickerDex ?? model.pickerDex,
+		pickerParams: override.pickerParams ?? model.pickerParams,
+		pickerColors: override.pickerColors ?? model.pickerColors,
 		reasoning: override.reasoning ?? model.reasoning,
 		thinkingLevelMap: override.thinkingLevelMap
 			? { ...model.thinkingLevelMap, ...override.thinkingLevelMap }
@@ -212,6 +232,16 @@ function modelFromJson(
 	return {
 		id: definition.id,
 		name: definition.name ?? definition.id,
+		pickerName: definition.pickerName,
+		pickerAlias: definition.pickerAlias,
+		pickerProviderOrder: definition.pickerProviderOrder,
+		pickerGroup: definition.pickerGroup,
+		pickerHardware: definition.pickerHardware,
+		pickerOrder: definition.pickerOrder,
+		pickerIntelligence: definition.pickerIntelligence,
+		pickerDex: definition.pickerDex,
+		pickerParams: definition.pickerParams,
+		pickerColors: definition.pickerColors,
 		api: api as Api,
 		provider: providerId,
 		baseUrl,
