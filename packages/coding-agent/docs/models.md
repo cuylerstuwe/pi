@@ -65,6 +65,45 @@ The dummy key makes the model available to Pi; Ollama ignores it. For an authent
 
 Opening `/model` reloads the file. A `models` entry adds or replaces a model with the same ID on that provider. Use `modelOverrides` to change metadata for an existing built-in or extension-provided model without replacing the provider's model list. Unknown override IDs are ignored.
 
+### Customize picker rows
+
+All picker metadata is optional. No picker-specific configuration, extension, model alias, or provider is required. Unconfigured models keep their canonical ID and provider label, default colors, and normal selection behavior. Missing columns remain blank; columns absent from every visible row are omitted. Newly discovered models use the same defaults. Without ordering metadata, the existing current/default/provider ordering is preserved in the full list and the supplied order is preserved in the scoped list.
+
+Set `pickerAlias` for a display/search-only alias such as `orbit`; API requests, selection callbacks, and sessions retain the canonical model ID. Set `pickerProviderOrder` on models to rank provider groups before current/default priorities. The lowest configured value in a provider wins; unranked providers follow.
+
+Set `pickerName` to show a short model name between its ID and provider, for example `alt (example 27b) [example-router]`. This name is searchable in the picker. The full `name` remains in the detail below the list, and requests still use `id`.
+
+Set `pickerGroup` to `"local"` for locally served models or `"remote"` for remote services (the default). Remote results always appear above local results, with a horizontal rule where both sections are visible. This applies during search and in both scopes; search still highlights its best match, and the rule is not selectable. Provider priorities and model order apply within these sections.
+
+Set `pickerOrder` to arrange models within a provider, with lower numbers first and unranked models last. This takes precedence over moving the current or default model to the top of that provider's list. Search results still rank by relevance. These fields affect only the picker; they can be set in `models`, `modelOverrides`, or extension model definitions.
+
+```json
+{
+  "id": "alt",
+  "pickerName": "example 27b",
+  "pickerHardware": "accelerator B",
+  "pickerOrder": 3,
+  "pickerIntelligence": "20-34",
+  "pickerDex": { "prefill": 1100, "code": 60, "prose": 30 },
+  "pickerParams": { "total": 27, "active": 27 },
+  "pickerColors": [{ "chars": 3, "fg": "#080808", "bg": "#DDBB44" }]
+}
+```
+
+`pickerIntelligence` adds a searchable `INT:` column immediately after the alias. Store the score as text, for example `"42"`, `"20-34"`, or `"9-14*"`; ranges and estimate markers display unchanged. Omit it when no score is available.
+
+`pickerDex` adds a searchable `DEX: 1.1k/60/30 t/s` column immediately after intelligence. Supply measured positive tokens-per-second values in prefill, code generation, and prose generation order. Prefill values above 1000 display in thousands with one decimal place, for example `2702` becomes `2.7k` and a `26317`–`36038` range becomes `26.3k-36.0k`. Other values round to whole numbers. Stored measurements retain their full precision; picker search uses the displayed form. A component may instead be an observed range, for example `{ "min": 55, "max": 70 }`, rendered as `55-70`. Use `null` for an unavailable component, rendered as `?`, for example `DEX: ?/60/30 t/s`. Omit it until measurements are available.
+
+`pickerParams` contains total and active parameters in billions and renders as `{ 27B / 27B }` after throughput and before the model name. Numeric values are billions. Strings display verbatim, for example `{ "total": "3-5T*", "active": "???" }`. Counts are searchable. Use equal values for dense models and omit the field when counts are unknown.
+
+Individual `pickerDex` and `pickerParams` members may be omitted; missing members display as `?`. For example, `"pickerDex": { "code": 60 }` renders `DEX: ?/60/? t/s`, and `"pickerParams": { "total": 27 }` renders `{ 27B / ? }`. These are user-supplied reference measurements and labels; the picker does not benchmark models or measure live generation or prefill.
+
+`pickerHardware` adds a searchable serving-hardware label between the model name and provider, for example `[accelerator B]`. Store the label without brackets. Omit it when the hardware is unknown.
+
+`pickerColors` styles consecutive runs of the display alias (or ID when no alias is set) without changing its text. Each run specifies a positive `chars` count (Unicode graphemes), a foreground `fg`, and an optional background `bg`, using `#RRGGBB` colors. Uncovered characters use the default foreground; runs beyond the end have no visible effect. For multiple colors, add more runs. Colors remain stable while browsing; the arrow and checkmark indicate selection and the current model.
+
+Alias, intelligence, DEX throughput, parameter counts, short name, serving hardware, provider, and default marker align in columns sized to the currently visible rows. Widths update after searching or scrolling. Columns without values are omitted. Long rows truncate to the terminal width instead of wrapping; the selected model's full name remains below the list. The compact picker adjusts its visible row count to terminal height; eleven models fit at 24 rows. Set `enabledModels` in settings to curate the initial scoped list; Tab still opens the full catalog. These display fields also work in `modelOverrides` and extension model definitions and are not added to inference requests.
+
 ### Describe model input and caching
 
 Use `inputLimits.images.resize` to control how Pi encodes new image attachments, `read` results, and tool-result images before storing them in conversation history:

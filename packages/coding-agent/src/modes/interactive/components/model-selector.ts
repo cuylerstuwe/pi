@@ -5,16 +5,19 @@ import {
 	fuzzyFilter,
 	getKeybindings,
 	Input,
+	parseColor,
 	Spacer,
 	Text,
+	TruncatedText,
 	type TUI,
+	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { ModelRuntime } from "../../../core/model-runtime.ts";
 import { refreshModelCatalogs } from "../model-catalog-refresh.ts";
-import { getModelSelectorSearchText } from "../model-search.ts";
+import { formatPickerDex, formatPickerParams, getModelSelectorSearchText } from "../model-search.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
-import { keyDisplayText, keyHint } from "./keybinding-hints.ts";
+import { keyDisplayText } from "./keybinding-hints.ts";
 
 interface ModelItem {
 	provider: string;
@@ -33,6 +36,10 @@ interface DefaultModelReference {
 }
 
 type ModelScope = "all" | "scoped";
+
+function comparePickerGroups(a: ModelItem, b: ModelItem): number {
+	return Number(a.model.pickerGroup === "local") - Number(b.model.pickerGroup === "local");
+}
 
 /**
  * Component that renders a model selector with search
@@ -67,8 +74,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	private scopedModels: ReadonlyArray<ScopedModelItem>;
 	private defaultModel?: DefaultModelReference;
 	private scope: ModelScope = "all";
-	private scopeText?: Text;
-	private scopeHintText?: Text;
+	private lastTerminalRows = 0;
 	private readonly refreshAbortController = new AbortController();
 	private refreshTimeout?: ReturnType<typeof setTimeout>;
 	private closed = false;
@@ -98,19 +104,17 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
 		// Add top border
 		this.addChild(new DynamicBorder());
-		this.addChild(new Spacer(1));
 
 		// Add hint about model filtering
 		if (scopedModels.length > 0) {
-			this.scopeText = new Text(this.getScopeText(), 0, 0);
-			this.addChild(this.scopeText);
-			this.scopeHintText = new Text(this.getScopeHintText(), 0, 0);
-			this.addChild(this.scopeHintText);
+			this.addChild({
+				render: (width) => new TruncatedText(this.getScopeText()).render(width),
+				invalidate: () => {},
+			});
 		} else {
 			const hintText = "Only showing models from configured providers. Use /login to add providers.";
-			this.addChild(new Text(theme.fg("warning", hintText), 0, 0));
+			this.addChild(new TruncatedText(theme.fg("warning", hintText)));
 		}
-		this.addChild(new Spacer(1));
 
 		// Create search input
 		this.searchInput = new Input();
@@ -131,18 +135,14 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		this.listContainer = new Container();
 		this.addChild(this.listContainer);
 
-		this.addChild(new Spacer(1));
-
 		// Hint
 		if (this.onSelectAsDefaultCallback) {
 			this.addChild(
-				new Text(
+				new TruncatedText(
 					theme.fg(
 						"dim",
-						`  ${keyDisplayText("tui.select.confirm")} to select · ${keyDisplayText("app.models.save")} to set as default · ${keyDisplayText("tui.select.cancel")} to cancel`,
+						`  ${keyDisplayText("tui.select.confirm")} select · ${keyDisplayText("app.models.save")} default · ${keyDisplayText("tui.select.cancel")} cancel`,
 					),
-					0,
-					0,
 				),
 			);
 		}
@@ -169,11 +169,13 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			const refreshed = this.modelRuntime.getModel(scoped.model.provider, scoped.model.id);
 			return refreshed ? { ...scoped, model: refreshed } : scoped;
 		});
-		this.scopedModelItems = this.scopedModels.map((scoped) => ({
-			provider: scoped.model.provider,
-			id: scoped.model.id,
-			model: scoped.model,
-		}));
+		this.scopedModelItems = this.applyPickerOrder(
+			this.scopedModels.map((scoped) => ({
+				provider: scoped.model.provider,
+				id: scoped.model.id,
+				model: scoped.model,
+			})),
+		);
 		this.activeModels = this.scope === "scoped" ? this.scopedModelItems : this.allModels;
 		this.filteredModels = this.activeModels;
 		const currentIndex = this.filteredModels.findIndex((item) => modelsAreEqual(this.currentModel, item.model));
@@ -242,17 +244,50 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			if (!aIsDefault && bIsDefault) return 1;
 			return a.provider.localeCompare(b.provider);
 		});
-		return sorted;
+		return this.applyPickerOrder(sorted);
+	}
+
+	private applyPickerOrder(models: ModelItem[]): ModelItem[] {
+		const sorted = [...models];
+		const providers = new Set(
+			models.filter((item) => item.model.pickerOrder !== undefined).map((item) => item.provider),
+		);
+		for (const provider of providers) {
+			const ordered = models
+				.filter((item) => item.provider === provider)
+				.sort((a, b) => {
+					const aOrder = a.model.pickerOrder ?? Number.POSITIVE_INFINITY;
+					const bOrder = b.model.pickerOrder ?? Number.POSITIVE_INFINITY;
+					return aOrder === bOrder ? 0 : aOrder - bOrder;
+				});
+			// Reorder only this provider's slots, preserving other providers and unconfigured lists.
+			let index = 0;
+			for (let i = 0; i < sorted.length; i++) {
+				if (sorted[i].provider === provider) sorted[i] = ordered[index++];
+			}
+		}
+		const providerRanks = new Map<string, number>();
+		for (const item of models) {
+			if (item.model.pickerProviderOrder !== undefined) {
+				providerRanks.set(
+					item.provider,
+					Math.min(providerRanks.get(item.provider) ?? Infinity, item.model.pickerProviderOrder),
+				);
+			}
+		}
+		return sorted.sort((a, b) => {
+			const groupOrder = comparePickerGroups(a, b);
+			if (groupOrder !== 0) return groupOrder;
+			const aRank = providerRanks.get(a.provider) ?? Infinity;
+			const bRank = providerRanks.get(b.provider) ?? Infinity;
+			return aRank === bRank ? 0 : aRank - bRank;
+		});
 	}
 
 	private getScopeText(): string {
 		const allText = this.scope === "all" ? theme.fg("accent", "all") : theme.fg("muted", "all");
 		const scopedText = this.scope === "scoped" ? theme.fg("accent", "scoped") : theme.fg("muted", "scoped");
-		return `${theme.fg("muted", "Scope: ")}${allText}${theme.fg("muted", " | ")}${scopedText}`;
-	}
-
-	private getScopeHintText(): string {
-		return keyHint("tui.input.tab", "scope") + theme.fg("muted", " (all/scoped)");
+		return `${theme.fg("muted", "Scope: ")}${allText}${theme.fg("muted", " | ")}${scopedText}${theme.fg("muted", ` · ${keyDisplayText("tui.input.tab")} switch · /login add provider`)}`;
 	}
 
 	private isDefaultModel(model: Model<any>): boolean {
@@ -271,17 +306,24 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		const currentIndex = this.activeModels.findIndex((item) => modelsAreEqual(this.currentModel, item.model));
 		this.selectedIndex = currentIndex >= 0 ? currentIndex : 0;
 		this.filterModels(this.searchInput.getValue());
-		if (this.scopeText) {
-			this.scopeText.setText(this.getScopeText());
-		}
 	}
 
 	private filterModels(query: string): void {
 		if (query) {
 			const filtered = fuzzyFilter(this.activeModels, query, (item) => {
 				const defaultText = this.isDefaultModel(item.model) ? " default" : "";
-				return `${getModelSelectorSearchText({ id: item.id, provider: item.provider, name: item.model.name })}${defaultText}`;
+				return `${getModelSelectorSearchText(item.model)}${defaultText}`;
 			});
+			// An exact display alias should beat incidental matches in long descriptions.
+			const normalizedQuery = query.trim().toLowerCase();
+			const isExactAlias = (item: ModelItem): boolean => {
+				const alias = item.model.pickerAlias?.toLowerCase();
+				return (
+					alias !== undefined &&
+					(alias === normalizedQuery || `${item.provider.toLowerCase()}/${alias}` === normalizedQuery)
+				);
+			};
+			filtered.sort((a, b) => Number(isExactAlias(b)) - Number(isExactAlias(a)));
 			if (this.isDefaultSearch(query)) {
 				const defaultItems = this.activeModels.filter((item) => this.isDefaultModel(item.model));
 				const defaultKeys = new Set(defaultItems.map((item) => `${item.provider}\0${item.id}`));
@@ -295,40 +337,83 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		} else {
 			this.filteredModels = this.activeModels;
 		}
-		// When filtering by a query, move the selector to the top row so the best
-		// match is highlighted. When the query is cleared, keep the current position
-		// clamped to the (restored) list length.
-		this.selectedIndex = query ? 0 : Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1));
+		// Keep the best search match selected even when section ordering moves it.
+		if (query) {
+			const bestMatch = this.filteredModels[0];
+			this.filteredModels.sort(comparePickerGroups);
+			this.selectedIndex = bestMatch ? this.filteredModels.indexOf(bestMatch) : 0;
+		} else {
+			this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1));
+		}
 		this.updateList();
 	}
 
 	private updateList(): void {
 		this.listContainer.clear();
 
-		const maxVisible = 10;
+		// Reserve compact chrome, a section divider/paging status, and the Pi footer.
+		const terminalRows = this.tui.terminal?.rows ?? 23;
+		this.lastTerminalRows = terminalRows;
+		const maxVisible = Math.max(1, terminalRows - 13);
 		const startIndex = Math.max(
 			0,
 			Math.min(this.selectedIndex - Math.floor(maxVisible / 2), this.filteredModels.length - maxVisible),
 		);
 		const endIndex = Math.min(startIndex + maxVisible, this.filteredModels.length);
 
-		// Show visible slice of filtered models
-		for (let i = startIndex; i < endIndex; i++) {
-			const item = this.filteredModels[i];
-			if (!item) continue;
-
-			const isSelected = i === this.selectedIndex;
+		// Measure only the current page, after filtering. ANSI colors do not occupy columns.
+		const rows = this.filteredModels.slice(startIndex, endIndex).map((item, index) => {
+			const isSelected = startIndex + index === this.selectedIndex;
 			const isCurrent = modelsAreEqual(this.currentModel, item.model);
 			const isDefault = this.isDefaultModel(item.model);
-			const defaultBadge = isDefault ? theme.fg("muted", " · default") : "";
 
 			const cursor = isSelected ? theme.fg("accent", "→ ") : "  ";
 			const currentMarker = isCurrent ? theme.fg("accent", "✓ ") : "  ";
-			const modelText = isSelected ? theme.fg("accent", item.id) : item.id;
-			const providerBadge = theme.fg("muted", `[${item.provider}]`);
-			const line = `${cursor}${currentMarker}${modelText} ${providerBadge}${defaultBadge}`;
+			const alias = item.model.pickerAlias ?? item.id;
+			let modelText = isSelected ? theme.fg("accent", alias) : alias;
+			if (item.model.pickerColors?.length) {
+				const characters = Array.from(new Intl.Segmenter().segment(alias), (part) => part.segment);
+				let offset = 0;
+				modelText = "";
+				for (const run of item.model.pickerColors) {
+					const text = characters.slice(offset, offset + run.chars).join("");
+					modelText += theme.style(text, { fg: parseColor(run.fg), bg: run.bg ? parseColor(run.bg) : undefined });
+					offset += run.chars;
+				}
+				modelText += characters.slice(offset).join("");
+			}
+			const params = item.model.pickerParams;
+			const dex = item.model.pickerDex;
+			return {
+				isLocal: item.model.pickerGroup === "local",
+				prefix: `${cursor}${currentMarker}`,
+				cells: [
+					modelText,
+					item.model.pickerIntelligence ? theme.fg("muted", `INT: ${item.model.pickerIntelligence}`) : "",
+					dex ? theme.fg("muted", formatPickerDex(dex)) : "",
+					params ? theme.fg("muted", formatPickerParams(params)) : "",
+					item.model.pickerName ? theme.fg("muted", `(${item.model.pickerName})`) : "",
+					item.model.pickerHardware ? theme.fg("muted", `[${item.model.pickerHardware}]`) : "",
+					theme.fg("muted", `[${item.provider}]`),
+					isDefault ? theme.fg("muted", "· default") : "",
+				],
+			};
+		});
+		const columnWidths = (rows[0]?.cells ?? []).map((_, column) =>
+			Math.max(0, ...rows.map((row) => visibleWidth(row.cells[column]))),
+		);
+		const columns = columnWidths.flatMap((width, column) => (width > 0 ? [column] : []));
+		for (const [index, row] of rows.entries()) {
+			if (index > 0 && rows[index - 1].isLocal !== row.isLocal) {
+				this.listContainer.addChild(new DynamicBorder());
+			}
+			const cells = columns.map((column, index) => {
+				const cell = row.cells[column];
+				const padding = index < columns.length - 1 ? columnWidths[column] - visibleWidth(cell) : 0;
+				return cell + " ".repeat(padding);
+			});
 
-			this.listContainer.addChild(new Text(line, 0, 0));
+			this.listContainer.addChild(new TruncatedText(row.prefix + cells.join(" ")));
 		}
 
 		// Add scroll indicator if needed
@@ -349,14 +434,20 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		} else {
 			const selected = this.filteredModels[this.selectedIndex];
 			this.listContainer.addChild(new Spacer(1));
-			this.listContainer.addChild(new Text(theme.fg("muted", `  Model Name: ${selected.model.name}`), 0, 0));
+			this.listContainer.addChild(new TruncatedText(theme.fg("muted", `  Model Name: ${selected.model.name}`)));
 		}
 		if (this.refreshStatusMessage) {
-			this.listContainer.addChild(new Spacer(1));
 			this.listContainer.addChild(
-				new Text(theme.fg(this.refreshStatusSuccess ? "success" : "muted", `  ${this.refreshStatusMessage}`), 0, 0),
+				new TruncatedText(
+					theme.fg(this.refreshStatusSuccess ? "success" : "muted", `  ${this.refreshStatusMessage}`),
+				),
 			);
 		}
+	}
+
+	override render(width: number): string[] {
+		if ((this.tui.terminal?.rows ?? 23) !== this.lastTerminalRows) this.updateList();
+		return super.render(width);
 	}
 
 	handleInput(keyData: string): void {
@@ -365,9 +456,6 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			if (this.scopedModelItems.length > 0) {
 				const nextScope: ModelScope = this.scope === "all" ? "scoped" : "all";
 				this.setScope(nextScope);
-				if (this.scopeHintText) {
-					this.scopeHintText.setText(this.getScopeHintText());
-				}
 			}
 			return;
 		}
